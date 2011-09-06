@@ -2,9 +2,8 @@ Source: qpid-tools
 Section: misc
 Priority: extra
 Maintainer: Cajus Pollmeier <cajus@debian.org>
-Uploaders: Cajus Pollmeier <cajus@debian.org>
 Build-Depends: debhelper (>= 7), python-support, python-setuptools
-Standards-Version: 3.8.4
+Standards-Version: 3.9.1
 Homepage: http://qpid.apache.org
 
 Package: qpid-tools
