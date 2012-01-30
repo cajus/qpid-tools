@@ -39,11 +39,6 @@ Usage:  qpid-config [OPTIONS]
         qpid-config [OPTIONS] unbind <exchange-name> <queue-name> [binding-key]"""
 
 description = """
-ADDRESS syntax:
-
-      [username/password@] hostname [:<port>]
-      [username/password@] ip-address [:<port>]
-
 Examples:
 
 $ qpid-config add queue q
@@ -80,6 +75,7 @@ class Config:
         self._recursive         = False
         self._host              = "localhost"
         self._connTimeout       = 10
+        self._ignoreDefault     = False
         self._altern_ex         = None
         self._passive           = False
         self._durable           = False
@@ -101,7 +97,10 @@ class Config:
         self._flowResumeCount   = None
         self._flowStopSize      = None
         self._flowResumeSize    = None
+        self._msgGroupHeader    = None
+        self._sharedMsgGroup    = False
         self._extra_arguments   = []
+        self._returnCode        = 0
 
 config = Config()
 
@@ -120,13 +119,16 @@ FLOW_STOP_COUNT   = "qpid.flow_stop_count"
 FLOW_RESUME_COUNT = "qpid.flow_resume_count"
 FLOW_STOP_SIZE    = "qpid.flow_stop_size"
 FLOW_RESUME_SIZE  = "qpid.flow_resume_size"
+MSG_GROUP_HDR_KEY = "qpid.group_header_key"
+SHARED_MSG_GROUP  = "qpid.shared_msg_group"
 #There are various arguments to declare that have specific program
 #options in this utility. However there is now a generic mechanism for
 #passing arguments as well. The SPECIAL_ARGS list contains the
 #arguments for which there are specific program options defined
 #i.e. the arguments for which there is special processing on add and
 #list
-SPECIAL_ARGS=[FILECOUNT,FILESIZE,MAX_QUEUE_SIZE,MAX_QUEUE_COUNT,POLICY_TYPE,CLUSTER_DURABLE,LVQ,LVQNB,MSG_SEQUENCE,IVE,QUEUE_EVENT_GENERATION,FLOW_STOP_COUNT,FLOW_STOP_SIZE,FLOW_RESUME_SIZE]
+SPECIAL_ARGS=[FILECOUNT,FILESIZE,MAX_QUEUE_SIZE,MAX_QUEUE_COUNT,POLICY_TYPE,CLUSTER_DURABLE,LVQ,LVQNB,MSG_SEQUENCE,IVE,QUEUE_EVENT_GENERATION,FLOW_STOP_COUNT,FLOW_STOP_SIZE,FLOW_RESUME_SIZE,
+              MSG_GROUP_HDR_KEY,SHARED_MSG_GROUP]
 
 class JHelpFormatter(IndentedHelpFormatter):
     """Format usage and description without stripping newlines from usage strings
@@ -159,9 +161,13 @@ def OptionsAndArguments(argv):
     group1 = OptionGroup(parser, "General Options")
     group1.add_option("-t", "--timeout", action="store", type="int", default=10, metavar="<secs>", help="Maximum time to wait for broker connection (in seconds)")
     group1.add_option("-b", "--bindings", action="store_true", help="Show bindings in queue or exchange list")
-    group1.add_option("-a", "--broker-addr", action="store", type="string", default="localhost:5672", metavar="<address>", help="Address of qpidd broker")
+    group1.add_option("-a", "--broker-addr", action="store", type="string", default="localhost:5672", metavar="<address>", help="Address of qpidd broker with syntax: [username/password@] hostname | ip-address [:<port>]")
     group1.add_option("--sasl-mechanism", action="store", type="string", metavar="<mech>", help="SASL mechanism for authentication (e.g. EXTERNAL, ANONYMOUS, PLAIN, CRAM-MD, DIGEST-MD5, GSSAPI). SASL automatically picks the most secure available mechanism - use this option to override.")
     parser.add_option_group(group1)
+
+    group_ls = OptionGroup(parser, "Options for Listing Exchanges and Queues")
+    group_ls.add_option("--ignore-default", action="store_true", help="Ignore the default exchange in exchange or queue list")
+    parser.add_option_group(group_ls)
 
     group2 = OptionGroup(parser, "Options for Adding Exchanges and Queues")
     group2.add_option("--alternate-exchange", action="store", type="string", metavar="<aexname>", help="Name of the alternate-exchange for the new queue or exchange. Exchanges route messages to the alternate exchange if they are unable to route them elsewhere. Queues route messages to the alternate exchange if they are rejected by a subscriber or orphaned by queue deletion.")
@@ -172,7 +178,7 @@ def OptionsAndArguments(argv):
     group3 = OptionGroup(parser, "Options for Adding Queues")
     group3.add_option("--cluster-durable", action="store_true", help="The new queue becomes durable if there is only one functioning cluster node")
     group3.add_option("--file-count", action="store", type="int", default=8, metavar="<n>", help="Number of files in queue's persistence journal")
-    group3.add_option("--file-size", action="store", type="int", default=24, metavar="<n>", help="File size in pages (64Kib/page)")
+    group3.add_option("--file-size", action="store", type="int", default=24, metavar="<n>", help="File size in pages (64KiB/page)")
     group3.add_option("--max-queue-size", action="store", type="int", metavar="<n>", help="Maximum in-memory queue size as bytes")
     group3.add_option("--max-queue-count", action="store", type="int", metavar="<n>", help="Maximum in-memory queue size as a number of messages")
     group3.add_option("--limit-policy", action="store", choices=["none", "reject", "flow-to-disk", "ring", "ring-strict"], metavar="<policy>", help="Action to take when queue limit is reached")
@@ -186,6 +192,10 @@ def OptionsAndArguments(argv):
                       help="Turn on sender flow control when the number of queued messages exceeds this value.")
     group3.add_option("--flow-resume-count", action="store", type="int", metavar="<n>",
                       help="Turn off sender flow control when the number of queued messages drops below this value.")
+    group3.add_option("--group-header", action="store", type="string", metavar="<header-name>",
+                      help="Enable message groups. Specify name of header that holds group identifier.")
+    group3.add_option("--shared-groups", action="store_true",
+                      help="Allow message group consumption across multiple consumers.")
     group3.add_option("--argument", dest="extra_arguments", action="append", default=[],
                       metavar="<NAME=VALUE>", help="Specify a key-value pair to add to queue arguments")
     # no option for declaring an exclusive queue - which can only be used by the session that creates it.
@@ -222,6 +232,8 @@ def OptionsAndArguments(argv):
         config._connTimeout = opts.timeout
         if config._connTimeout == 0:
             config._connTimeout = None
+    if opts.ignore_default:
+        config._ignoreDefault = True
     if opts.alternate_exchange:
         config._altern_ex = opts.alternate_exchange
     if opts.passive:
@@ -267,6 +279,10 @@ def OptionsAndArguments(argv):
         config._flowStopCount = opts.flow_stop_count
     if opts.flow_resume_count:
         config._flowResumeCount = opts.flow_resume_count
+    if opts.group_header:
+        config._msgGroupHeader = opts.group_header
+    if opts.shared_groups:
+        config._sharedMsgGroup = True
     if opts.extra_arguments:
         config._extra_arguments = opts.extra_arguments
     return args
@@ -359,9 +375,16 @@ class BrokerManager:
         caption1 = "Type      "
         caption2 = "Exchange Name"
         maxNameLen = len(caption2)
+        found = False
         for ex in exchanges:
             if self.match(ex.name, filter):
                 if len(ex.name) > maxNameLen:  maxNameLen = len(ex.name)
+                found = True
+        if not found:
+            global config
+            config._returnCode = 1
+            return
+
         print "%s%-*s  Attributes" % (caption1, maxNameLen, caption2)
         line = ""
         for i in range(((maxNameLen + len(caption1)) / 5) + 5):
@@ -369,6 +392,7 @@ class BrokerManager:
         print line
 
         for ex in exchanges:
+            if config._ignoreDefault and not ex.name: continue
             if self.match(ex.name, filter):
                 print "%-10s%-*s " % (ex.type, maxNameLen, ex.name),
                 args = ex.arguments
@@ -385,6 +409,7 @@ class BrokerManager:
         bindings  = self.qmf.getObjects(_class="binding", _agent=self.brokerAgent)
         queues    = self.qmf.getObjects(_class="queue", _agent=self.brokerAgent)
         for ex in exchanges:
+            if config._ignoreDefault and not ex.name: continue
             if self.match(ex.name, filter):
                 print "Exchange '%s' (%s)" % (ex.name, ex.type)
                 for bind in bindings:
@@ -398,12 +423,18 @@ class BrokerManager:
 
     def QueueList(self, filter):
         queues = self.qmf.getObjects(_class="queue", _agent=self.brokerAgent)
-
         caption = "Queue Name"
         maxNameLen = len(caption)
+        found = False
         for q in queues:
             if self.match(q.name, filter):
                 if len(q.name) > maxNameLen:  maxNameLen = len(q.name)
+                found = True
+        if not found:
+            global config
+            config._returnCode = 1
+            return
+
         print "%-*s  Attributes" % (maxNameLen, caption)
         line = ""
         for i in range((maxNameLen / 5) + 5):
@@ -433,6 +464,8 @@ class BrokerManager:
                 if FLOW_RESUME_SIZE in args: print "--flow-resume-size=%s" % args[FLOW_RESUME_SIZE],
                 if FLOW_STOP_COUNT in args: print "--flow-stop-count=%s" % args[FLOW_STOP_COUNT],
                 if FLOW_RESUME_COUNT in args: print "--flow-resume-count=%s" % args[FLOW_RESUME_COUNT],
+                if MSG_GROUP_HDR_KEY in args: print "--group-header=%s" % args[MSG_GROUP_HDR_KEY],
+                if SHARED_MSG_GROUP in args and args[SHARED_MSG_GROUP] == 1: print "--shared-groups",
                 print " ".join(["--argument %s=%s" % (k, v) for k,v in args.iteritems() if not k in SPECIAL_ARGS])
 
     def QueueListRecurse(self, filter):
@@ -449,6 +482,7 @@ class BrokerManager:
                         if ex != None:
                             ename = ex.name
                             if ename == "":
+                                if config._ignoreDefault: continue
                                 ename = "''"
                         print "    bind [%s] => %s" % (bind.bindingKey, ename)
 
@@ -524,6 +558,11 @@ class BrokerManager:
             declArgs[FLOW_STOP_COUNT]  = config._flowStopCount
         if config._flowResumeCount:
             declArgs[FLOW_RESUME_COUNT]  = config._flowResumeCount
+
+        if config._msgGroupHeader:
+            declArgs[MSG_GROUP_HDR_KEY] = config._msgGroupHeader
+        if config._sharedMsgGroup:
+            declArgs[SHARED_MSG_GROUP] = 1
 
         if config._altern_ex != None:
             self.broker.getAmqpSession().queue_declare(queue=qname, alternate_exchange=config._altern_ex, passive=config._passive, durable=config._durable, arguments=declArgs)
@@ -675,7 +714,7 @@ def main(argv=None):
                 print "Failed: %s: %s" % (e.__class__.__name__, e)
                 return 1
 
-    return 0
+    return config._returnCode
 
 if __name__ == "__main__":
         sys.exit(main())
