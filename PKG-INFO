@@ -1,6 +1,6 @@
 Metadata-Version: 1.0
 Name: qpid-tools
-Version: 0.14
+Version: 0.16
 Summary: Diagnostic and management tools for Apache Qpid brokers.
 Home-page: http://qpid.apache.org/
 Author: Apache Qpid

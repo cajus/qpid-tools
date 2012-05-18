@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 #
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
@@ -17,24 +16,7 @@
 # specific language governing permissions and limitations
 # under the License.
 #
-from distutils.core import setup
 
-setup(name="qpid-tools",
-      version="0.16",
-      author="Apache Qpid",
-      author_email="dev@qpid.apache.org",
-      package_dir={'' : 'src/py'},
-      packages=["qpidtoollibs"],
-      scripts=["src/py/qpid-cluster",
-               "src/py/qpid-cluster-store",
-               "src/py/qpid-config",
-               "src/py/qpid-ha",
-               "src/py/qpid-printevents",
-               "src/py/qpid-queue-stats",
-               "src/py/qpid-route",
-               "src/py/qpid-stat",
-               "src/py/qpid-tool",
-               "src/py/qmf-tool"],
-      url="http://qpid.apache.org/",
-      license="Apache Software License",
-      description="Diagnostic and management tools for Apache Qpid brokers.")
+from qpidtoollibs.broker import *
+from qpidtoollibs.disp import *
+
