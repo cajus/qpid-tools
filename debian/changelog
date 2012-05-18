@@ -1,3 +1,9 @@
+qpid-tools (0.16-1) unstable; urgency=low
+
+  * New upstream version.
+
+ -- Cajus Pollmeier <cajus@debian.org>  Fri, 18 May 2012 09:20:20 +0200
+
 qpid-tools (0.14-1) unstable; urgency=low
 
   * New upstream version.
